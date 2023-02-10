@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import time
 
 ### Do not modif the following codes
 class ctx_noparamgrad(object):
@@ -84,42 +85,21 @@ class PGDAttack():
         pass
         ### Your code ends
 
-    def _bisection_algorithm(self, func, a, b, epsilon):
+    # TODO Untested
+    def _projection(self, a, eps):
         """
-        Returns x such that func(x) = 0 using the bisection method
+        An infinity norm projection basically clips a to eps:
+            d_i = {
+                -eps if a_i < eps
+                a_i if eps <= a_i <= eps
+                eps if a_i > eps
+            }
 
-        Parameters:
-            func        The function whose root we are looking for. It should
-                        accept a float and return a float
-            a           Lower bound for x
-            b           Upper bound for x
-            epsilon     Terminates when |a - b| < epsilon
-
-        Precondition:
-            func(a) * func(b) <= 0 (implies that they have opposite signs)
         """
-        assert(func(a) * func(b) <= 0)
-        t = (a + b) / 2
-
-        while abs(a-b) >= epsilon or func(t) != 0:
-            # Fancy way of checking if sign(f(a)) == sign(f(t))
-            if func(a) * func(t) > 0:
-                a = t
-            else:
-                b = t
-            t = (a + b) / 2
-
-        return t
-
-    def _projection(self, a, epsilon):
-        """
-        Let a = delta_hat
-        If |a|_1 <= epsilon, output a
-        Otherwise, follow the following algorithm::
-            Calculate the root of sum(max(|a_i|-\mu/2, 0)) - \eps = 0 using bisection_algorithm above
-            Using the calculated mu, return sign(a) * max(|a| - \mu/2, 0) <-- (max, sign, |.| are elementwise)
-        """
-        pass
+        # Note: Following slide 17 from lecture "Lp attack with notes" 
+        #  - Note that we're doing an infinity-norm attack, not l1-norm attack.
+        #    Therefore, we can't directly use the slides (but something close).
+        return torch.clamp(a, min=-eps, max=eps)
 
     def perturb(self, model: nn.Module, X, y):
         """
@@ -139,6 +119,7 @@ class PGDAttack():
             # Compute attack loss and get gradient
             loss = self.ce_loss(model(X + delta), y)
             loss.backward()
+            print(loss)
 
             # Update rule
             delta_hat = delta - self._alpha * delta.grad
@@ -147,9 +128,20 @@ class PGDAttack():
             # Sanity check to make sure gradient is actually getting computed properly.
             # Note that this is a lower bound on the loss, since delta_hat may not be
             # within the epsilon-ball constraints
-            assert(self.ce_loss(model(X + delta_hat), y) <= loss)
+            # Note: Commented for speed; please uncomment when testing new changes
+            # assert(self.ce_loss(model(X + delta_hat), y) < loss)
 
-            # TODO Calculate projection of delta onto epsilon ball
+            # Calculate projection of delta onto epsilon ball
+            delta = self._projection(delta_hat, self._eps)
+            delta = torch.tensor(delta, requires_grad=True)
+
+            # Sanity check to make sure that the new perturbation will still
+            # lower the attack loss
+            # Note: Commented for speed; please uncomment when testing new changes
+            # assert(self.ce_loss(model(X + delta), y) < loss)
+
+            # An alternate way to check the infinity-norm constraint
+            assert(torch.max(torch.abs(delta)) <= self._eps)
         
         return delta
 

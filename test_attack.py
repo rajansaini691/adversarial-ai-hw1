@@ -4,24 +4,6 @@ Tests to make sure that the sgd update step is correct
 from attack_util import PGDAttack
 import torch
 
-def test_bisection_algorithm():
-    """
-    Ensure that PGDAttack.bisection_algorithm() actually finds
-    the root of a given function
-    """
-    pgd_attack = PGDAttack()
-
-    # For this function, we expect the algorithm to give
-    # a value close to x = 1 or -1 (depending on the initial
-    # conditions)
-    example_func = lambda x: x ** 2 - 1
-
-    eps = 0.0001
-
-    assert(abs(pgd_attack._bisection_algorithm(example_func, 0, 3, eps) - 1) <= 0.001)
-    assert(abs(pgd_attack._bisection_algorithm(example_func, -3, 0, eps) - (-1)) <= 0.001)
-
-
 def test_cross_entropy_loss():
     # Defines test dimensions
     num_test_classes = 10
