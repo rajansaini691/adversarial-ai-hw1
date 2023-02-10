@@ -39,19 +39,40 @@ class PGDAttack():
         eps: attack budget
         alpha: PGD attack step size
         '''
-        ### Your code here
-        pass
-        ### Your code ends
+        self._attack_step = attack_step
+        self._eps = eps
+        self._alpha = alpha
+        self._loss_type = loss_type
+        self._targeted = targeted
 
     def ce_loss(self, logits, y):
         """
         Args:
             logits  Tensor of dim (64, 10)      <--- (BATCH_SIZE, NUM_CLASSES)
             y       Tensor of dim (64)
+
+        Returns:
+            A single scalar representing the attack loss for the given pair
+            of logits and labels
         """
-        log_logits = torch.log(logits)
-        one_hot_labels = torch.nn.functional.one_hot(y, num_classes=10).float()
-        return torch.sum(torch.mul(log_logits, one_hot_labels), dim=1)
+        batch_size, num_classes = logits.shape
+
+        # According to the pytorch docs, LogSoftmax has better numerical
+        # properties than separately applying softmax and log
+        log_softmax_func = torch.nn.LogSoftmax(dim=1)
+        log_probabilities = log_softmax_func(logits)
+
+        # Cross entropy requires one-hot labels (y is categorical)
+        one_hot_labels = torch.nn.functional.one_hot(
+            y, num_classes=num_classes).float()
+
+        # Get element-wise losses (computing dot products between corresponding
+        # labels & log-logits in parallel)
+        elementwise_losses = torch.sum(torch.mul(log_probabilities, one_hot_labels), dim=1)
+
+        # Get average loss
+        return torch.sum(elementwise_losses, dim=0) / batch_size
+
 
     def cw_loss(self, logits, y):
         """
@@ -63,19 +84,32 @@ class PGDAttack():
         pass
         ### Your code ends
 
-    def _bisection_algorithm(func, a, b):
+    def _bisection_algorithm(self, func, a, b, epsilon):
         """
         Returns x such that func(x) = 0 using the bisection method
 
         Parameters:
-            func        The function whose root we are looking for. It should accept a float
-                        and return a float (or accept a vector and return a vector of the
-                        same dimension, depending on whether we want to parallelize)
-            a           Lower bound for x (func(a) should be negative)
-            b           Upper bound for x (func(b) should be positive)
+            func        The function whose root we are looking for. It should
+                        accept a float and return a float
+            a           Lower bound for x
+            b           Upper bound for x
+            epsilon     Terminates when |a - b| < epsilon
+
+        Precondition:
+            func(a) * func(b) <= 0 (implies that they have opposite signs)
         """
-        assert(func(a) < 0)         # TODO This should be true element-wise for vectors
-        assert(func(b) > 0)         # TODO This should be true element-wise for vectors
+        assert(func(a) * func(b) <= 0)
+        t = (a + b) / 2
+
+        while abs(a-b) >= epsilon or func(t) != 0:
+            # Fancy way of checking if sign(f(a)) == sign(f(t))
+            if func(a) * func(t) > 0:
+                a = t
+            else:
+                b = t
+            t = (a + b) / 2
+
+        return t
 
     def _projection(self, a, epsilon):
         """
@@ -97,16 +131,25 @@ class PGDAttack():
             y           Tensor of dim (64)  <---- (BATCH_SIZE)
                          - These are the class labels (0-9)
         """
-        delta = torch.zeros_like(X)
-        print(y)
+        # Initialize perturbation. Setting requires_grad to True lets us
+        # take the gradient of the attack loss w.r.t. delta.
+        delta = torch.zeros_like(X, requires_grad=True)
         
-        # TODO Put this in a loop iterating for attack_step steps
-            # TODO Calculate gradient of ce_loss w.r.t. delta using autograd. Model should
-            #      take x + delta as input
-            #      Then use update rule to create delta_hat = delta_k - alpha * delta_grad
-            #      For sanity checking (check gradient), assert that
-            #          attack_loss(model(x + delta_hat)) < attack_loss(model(x + delta_k))
-            #      Then calculate projection of delta onto epsilon ball
+        for it in range(self._attack_step):
+            # Compute attack loss and get gradient
+            loss = self.ce_loss(model(X + delta), y)
+            loss.backward()
+
+            # Update rule
+            delta_hat = delta - self._alpha * delta.grad
+            delta.grad.zero_()      # Clear gradient for the next pass
+
+            # Sanity check to make sure gradient is actually getting computed properly.
+            # Note that this is a lower bound on the loss, since delta_hat may not be
+            # within the epsilon-ball constraints
+            assert(self.ce_loss(model(X + delta_hat), y) <= loss)
+
+            # TODO Calculate projection of delta onto epsilon ball
         
         return delta
 
