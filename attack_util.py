@@ -112,9 +112,10 @@ class PGDAttack():
         most_confident_incorrect_preds = torch.max(
             logits_without_correct_preds, 1).values
 
-        # FIXME Can we use eps for tau?
+        # Setting tau to 0, as required by the assignment description
+        tau = 0
         batchwise_cw_loss = torch.clamp(
-            correct_preds - most_confident_incorrect_preds, min=-self._eps)
+            correct_preds - most_confident_incorrect_preds, min=-tau)
         return torch.sum(batchwise_cw_loss) / batch_size
 
     def _projection(self, a, eps):
@@ -159,7 +160,7 @@ class PGDAttack():
             # Note that this is a lower bound on the loss, since delta_hat may not be
             # within the epsilon-ball constraints
             # Note: Commented for speed; please uncomment when testing new changes
-            # assert(self.ce_loss(model(X + delta_hat), y) < loss)
+            # assert(self.loss_fn(model(X + delta_hat), y) < loss)
 
             # Calculate projection of delta onto epsilon ball
             delta = self._projection(delta_hat, self._eps)
@@ -168,7 +169,7 @@ class PGDAttack():
             # Sanity check to make sure that the new perturbation will still
             # lower the attack loss
             # Note: Commented for speed; please uncomment when testing new changes
-            # assert(self.ce_loss(model(X + delta), y) < loss)
+            # assert(self.loss_fn(model(X + delta), y) < loss)
 
             # An alternate way to check the infinity-norm constraint
             assert(torch.max(torch.abs(delta)) <= self._eps)
