@@ -85,7 +85,6 @@ class PGDAttack():
         pass
         ### Your code ends
 
-    # TODO Untested
     def _projection(self, a, eps):
         """
         An infinity norm projection basically clips a to eps:
@@ -119,10 +118,9 @@ class PGDAttack():
             # Compute attack loss and get gradient
             loss = self.ce_loss(model(X + delta), y)
             loss.backward()
-            print(loss)
 
             # Update rule
-            delta_hat = delta - self._alpha * delta.grad
+            delta_hat = delta - self._alpha * torch.sign(delta.grad)
             delta.grad.zero_()      # Clear gradient for the next pass
 
             # Sanity check to make sure gradient is actually getting computed properly.
