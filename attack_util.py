@@ -151,14 +151,13 @@ If you do that, you do not need to implement FGSM in this class.
 '''
 class FGSMAttack():
     def __init__(self, eps=8 / 255, loss_type='ce', targeted=True, num_classes=10):
-        pass
+        # FGSM is just a special case of PGD
+        self._pgd_attack = PGDAttack(attack_step=1, eps=eps, loss_type=loss_type,
+                                     num_classes=num_classes, targeted=targeted,
+                                     alpha=eps)
 
     def perturb(self, model: nn.Module, X, y):
-        delta = torch.ones_like(X)
-        ### Your code here
-
-        ### Your code ends
-        return delta
+        return self._pgd_attack.perturb(model, X, y)
 
 
 

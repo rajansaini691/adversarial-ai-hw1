@@ -33,6 +33,9 @@ def parse_args():
     parser.add_argument(
         '--model_path', default='resnet_cifar10.pth', help='Filepath to the trained model'
     )
+    parser.add_argument(
+        '--fgsm', default=False, type=bool, help="Switches to FGSM attack when true"
+    )
     parser.add_argument("--targeted", action='store_true')
     parser.add_argument("--device", type=str, default="cuda:0", help="Device to use")
     
@@ -57,9 +60,13 @@ def main():
     ### Your code here for creating the attacker object
     # Note that FGSM attack is a special case of PGD attack with specific hyper-parameters
     # You can also implement a separate FGSM class if you want
-    attacker = attack_util.PGDAttack(
-        attack_step=args.attack_step, eps=eps, alpha=alpha, loss_type=args.loss_type,
-        targeted=args.targeted, num_classes=num_classes)
+    if args.fgsm:
+        attacker = attack_util.FGSMAttack()
+
+    else:
+        attacker = attack_util.PGDAttack(
+            attack_step=args.attack_step, eps=eps, alpha=alpha, loss_type=args.loss_type,
+            targeted=args.targeted, num_classes=num_classes)
     ### Your code ends
 
     total = 0
