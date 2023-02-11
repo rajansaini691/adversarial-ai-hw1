@@ -45,6 +45,8 @@ class PGDAttack():
         self._alpha = alpha
         self._loss_type = loss_type
         self._targeted = targeted
+        self._loss_fn = self.ce_loss if loss_type == 'ce' else self.cw_loss
+        self._num_classes = num_classes
 
     def ce_loss(self, logits, y):
         """
@@ -65,7 +67,7 @@ class PGDAttack():
 
         # Cross entropy requires one-hot labels (y is categorical)
         one_hot_labels = torch.nn.functional.one_hot(
-            y, num_classes=num_classes).float()
+            y, num_classes=self._num_classes).float()
 
         # Get element-wise losses (computing dot products between corresponding
         # labels & log-logits in parallel)
@@ -81,9 +83,39 @@ class PGDAttack():
             logits  Tensor of dim (64, 10)      <--- (BATCH_SIZE, NUM_CLASSES)
             y       Tensor of dim (64)
         """
-        ### Your code here
-        pass
-        ### Your code ends
+        # Only implementing untargeted C&W for now
+        assert(not self._targeted)
+
+        batch_size, num_classes = logits.shape
+
+        # torch.unsqueeze is needed so logits and y have the same # dims
+        # gather basically indexes the logits by the class labels
+        correct_preds = torch.gather(logits, 1, torch.unsqueeze(y,1))
+        correct_preds = torch.squeeze(correct_preds)
+
+        # The one hot labels serve as a mask marking where the correct
+        # predictions are within the logits
+        correct_pred_mask = torch.nn.functional.one_hot(
+            y, num_classes=self._num_classes).float()
+        incorrect_pred_mask = 1 - correct_pred_mask # Inverse of correct pred mask
+
+        # The logits and correct_pred_mask should have the same shape
+        # so that they can be broadcast against each other
+        assert(logits.shape == correct_pred_mask.shape)
+
+        # Remove correct class predictions from logits
+        logits_without_correct_preds = (
+            incorrect_pred_mask * logits + correct_pred_mask * -1e10)
+        
+        # Taking max along the class dimension gives the most
+        # confident incorrect predictions
+        most_confident_incorrect_preds = torch.max(
+            logits_without_correct_preds, 1).values
+
+        # FIXME Can we use eps for tau?
+        batchwise_cw_loss = torch.clamp(
+            correct_preds - most_confident_incorrect_preds, min=-self._eps)
+        return torch.sum(batchwise_cw_loss) / batch_size
 
     def _projection(self, a, eps):
         """
@@ -116,7 +148,7 @@ class PGDAttack():
         
         for it in range(self._attack_step):
             # Compute attack loss and get gradient
-            loss = self.ce_loss(model(X + delta), y)
+            loss = self._loss_fn(model(X + delta), y)
             loss.backward()
 
             # Update rule
