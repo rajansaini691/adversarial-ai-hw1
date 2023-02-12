@@ -76,14 +76,57 @@ class PGDAttack():
         # Get average loss
         return torch.sum(elementwise_losses, dim=0) / batch_size
 
-
     def cw_loss(self, logits, y):
+        if self._targeted:
+            return self.cw_loss_targeted(logits, y)
+        else:
+            return self.cw_loss_untargeted(logits, y)
+
+    def cw_loss_targeted(self, logits, y):
         """
         Args:
             logits  Tensor of dim (64, 10)      <--- (BATCH_SIZE, NUM_CLASSES)
             y       Tensor of dim (64)
         """
-        # Only implementing untargeted C&W for now
+        assert(self._targeted)
+
+        target_class = 1
+        batch_size, num_classes = logits.shape
+
+        # Target label is set to 1 by assignment. We want to take
+        # all confidences with the target label set and subtract
+        # from them the most confident non-target logit. To do that,
+        # we can create a target and non-target mask in order to
+        # select the correct logits.
+
+        target_mask = torch.zeros_like(logits)
+        target_mask[torch.arange(batch_size), target_class] = 1
+
+        # Perform a NOT operation on the target mask
+        nontarget_mask = 1 - target_mask
+        
+        targets = logits * target_mask
+        targets = torch.sum(targets, 1)       # Get rid of classes dimension
+
+        # Masked out logits become extremely unconfident
+        nontargets = logits * nontarget_mask + -1e10*target_mask
+        
+        most_confident_nontargets = torch.max(nontargets, 1).values
+
+        assert(targets.shape == most_confident_nontargets.shape)
+
+        # Setting tau to 0, as required by the assignment description
+        tau = 0
+        batchwise_cw_loss = torch.clamp(
+            most_confident_nontargets - targets, min=-tau)
+        return torch.sum(batchwise_cw_loss) / batch_size
+
+    def cw_loss_untargeted(self, logits, y):
+        """
+        Args:
+            logits  Tensor of dim (64, 10)      <--- (BATCH_SIZE, NUM_CLASSES)
+            y       Tensor of dim (64)
+        """
         assert(not self._targeted)
 
         batch_size, num_classes = logits.shape
